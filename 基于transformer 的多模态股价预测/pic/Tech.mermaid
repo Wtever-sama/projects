@@ -1,0 +1,74 @@
+graph TD
+    %% 定义颜色样式
+    classDef startNode fill:#87CEFA,stroke:#1E90FF,stroke-width:2px,radius:10px,font-size:16px,font-weight:bold
+    classDef layerNode fill:#F0F8FF,stroke:#4682B4,stroke-width:2px,radius:8px,font-weight:bold
+    classDef moduleNode fill:#E0FFFF,stroke:#48D1CC,stroke-width:1px,radius:6px,font-size:14px
+    classDef taskNode fill:#FFF5EE,stroke:#FFA07A,stroke-width:1px,radius:4px,font-size:12px
+
+    %% 项目启动节点
+    A[项目启动]:::startNode --> B[数据层构建]:::layerNode
+
+    %% 数据层细化
+    B --> B1[结构化数据获取]:::moduleNode
+    B --> B2[非结构化数据爬取]:::moduleNode
+
+    B1 --> B11[行情数据清洗]:::taskNode
+    B11 --> B111[处理停牌日数据]:::taskNode
+    B11 --> B112[标准化时间戳（北京时间）]:::taskNode
+    B11 --> B113[异常值检测（3σ原则）]:::taskNode
+
+    B2 --> B21[新闻舆情预处理]:::taskNode
+    B21 --> B211[文本去噪（正则匹配广告/免责声明）]:::taskNode
+    B21 --> B212[FinBERT情感分析（细粒度分类+强度评分）]:::taskNode
+
+    %% 算法层构建
+    B113 --> C[算法层开发]:::layerNode
+    B212 --> C
+
+    C --> C1[NLP模块：FinBERT情感分析]:::moduleNode
+    C1 --> C11[FinBERT模型微调训练]:::taskNode
+    C1 --> C12[情感分数输出（负面/中性/正面）]:::taskNode
+
+    C --> C2[时间序列模块：Transformer预测]:::moduleNode
+    C2 --> C21[Prophet基准模型（趋势验证）]:::taskNode
+    C2 --> C22[Transformer模型（PyTorch实现+注意力机制）]:::taskNode
+    C2 --> C23[引入情感分数作为外部变量]:::taskNode
+
+    C --> C3[多模态融合模块]:::moduleNode
+    C3 --> C31[早期融合（情感特征与行情特征拼接）]:::taskNode
+    C3 --> C32[晚期融合（双模型输出加权平均）]:::taskNode
+
+    %% 应用层实现
+    C12 --> D[应用层开发]:::layerNode
+    C23 --> D
+    C32 --> D
+
+    D --> D1[策略回测框架搭建]:::moduleNode
+    D1 --> D11[Backtrader框架集成]:::taskNode
+    D1 --> D12[情感阈值触发交易策略]:::taskNode
+    D1 --> D13[夏普比率评估策略效果]:::taskNode
+
+    D --> D2[Web平台开发]:::moduleNode
+    D2 --> D21[Vue.js前端（动态曲线+热词云）]:::taskNode
+    D2 --> D22[Django REST后端（预测API）]:::taskNode
+    D2 --> D23[ECharts可视化组件]:::taskNode
+    D2 --> D24[阿里云Docker容器部署]:::taskNode
+
+    %% 系统优化与成果交付
+    D13 --> E[系统优化与压力测试]:::moduleNode
+    D24 --> E
+    E --> E1[模型参数调优]:::taskNode
+    E --> E2[用户反馈迭代]:::taskNode
+
+    E --> F[成果交付]:::layerNode
+    F --> F1[学术成果]:::moduleNode
+    F1 --> F11[EI/SCI论文撰写（多模态预测模型）]:::taskNode
+    F1 --> F12[国家专利申请（系统核心技术）]:::taskNode
+
+    F --> F2[产业成果]:::moduleNode
+    F2 --> F21[GitHub开源代码]:::taskNode
+    F2 --> F22[参加“互联网+”金融科技赛道]:::taskNode
+    F2 --> F23[软件著作权登记]:::taskNode
+
+    %% 美化连线样式
+    linkStyle default stroke:#696969,stroke-width:1.5px,fill:none

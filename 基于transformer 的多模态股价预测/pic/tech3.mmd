@@ -1,0 +1,4 @@
+graph LR
+  A[前端请求/api/predict?code=000001] --> B[Django查询数据库]
+  B --> C[调用预训练模型生成预测]
+  C --> D[返回JSON数据]
