@@ -1,0 +1,335 @@
+---
+title: "E_回归"
+author: "杨诗言"
+date: "2025-06-03"
+output: html_document
+---
+
+```{r}
+setwd('/Users/wtsama/Documents/code/code2/R/课程设计/data_10y')
+
+library(openxlsx)
+returns <- read.csv("monthly_stock_returns.csv")
+head(returns)
+
+grand_data <- read.xlsx('处理后的_CPI_和_PMI_1.xlsx')
+# 将 grand_data 倒序排列
+grand_data <- grand_data[nrow(grand_data):1, ]
+rownames(grand_data) <- c(1:nrow(grand_data))
+grand_data <- data.frame(grand_data)
+# 读取数据
+cpi_data <- read.csv("CPI月度数据.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# 提取CPI总指数行(第一行)
+overall_cpi <- cpi_data[1, ]
+
+# 转置数据以便处理
+dates <- names(overall_cpi)[-1]  # 去掉"指标"列
+values <- as.numeric(overall_cpi[-1])  # 去掉"指标"值
+
+# 计算同比通货膨胀率 (CPI同比指数-100)
+inflation_rate <- values - 100
+
+# 创建结果数据框
+result <- data.frame(
+  日期 = dates,
+  CPI同比指数 = values,
+  通货膨胀率 = inflation_rate
+)
+
+# 按时间顺序排列(从最早到最近)
+result <- result[order(nchar(result$日期), result$日期), ]
+
+# 输出到CSV
+#write.csv(result, "月度通货膨胀率.csv", row.names = FALSE, fileEncoding = "UTF-8")
+```
+查看数据
+```{r}
+# 显示部分结果
+setwd('/Users/wtsama/Documents/code/code2/R/课程设计/data_10y')
+x_market <- read.csv('月度通货膨胀率.csv')
+head(x_market) # 2021.2~2025.4
+nrow(x_market)
+```
+$z = \frac {x-\mu}{\sigma_{x}}$
+```{r}
+# 数据标准化 z-score
+x_market["通货膨胀率"] <- scale(x_market["通货膨胀率"])
+grand_data["CPI_lag"] <- scale(grand_data["CPI_lag"])
+grand_data["PMI_lag"] <- scale(grand_data["PMI_lag"])
+grand_data["非制造业PMI涨幅"] <- scale(grand_data["非制造业PMI涨幅"])
+returns["hs300"] <- scale(returns["hs300"])
+returns["zz500"] <- scale(returns["zz500"])
+returns["zz1000"] <- scale(returns["zz1000"])
+```
+构建因子的数据框
+```{r}
+df <- data.frame(
+  date = x_market["日期"],
+  x_market = x_market["通货膨胀率"],
+  CPI_lag = grand_data["CPI_lag"],
+  PMI_lag = grand_data["PMI_lag"],
+  delta_pmi_lag = grand_data["非制造业PMI涨幅"],
+  y_hs300 = returns["hs300"],
+  y_zz500 = returns["zz500"],
+  y_zz1000 = returns["zz1000"]
+)
+colnames(df) <- c("date", "x_market",
+                  "CPI_lag", "PMI_lag", "delta_pmi_lag",
+                  "y_hs300", "y_zz500", "y_zz1000")
+head(df)
+```
+# 回归分析-多元回归分析
+**模型：**
+$y_{returns} = \beta_{0} + \beta_{1} \cdot x_{market} + \beta_{2} \cdot CPI_{lag_{t}}+\beta_{3} \cdot PMI_{lag_{t}}+\beta_{4}\cdot\delta PMI_{t}+\epsilon_{t}$
+
+## 单个因子的回归分析
+
+```{r}
+model_hs300 <- lm(y_hs300 ~ x_market + CPI_lag + PMI_lag + delta_pmi_lag,
+                  data = df)
+summary(model_hs300)
+```
+```{r}
+model_zz500 <- lm(y_zz500 ~ x_market + CPI_lag + PMI_lag + delta_pmi_lag,
+                  data = df)
+summary(model_zz500)
+```
+```{r}
+model_zz1000 <- lm(y_zz1000 ~ x_market + CPI_lag + PMI_lag + delta_pmi_lag,
+                  data = df)
+summary(model_zz1000)
+```
+
+
+## 逐步回归
+$y_{returns} = \beta_{0} + \beta_{1} \cdot x_{market} + \beta_{2} \cdot CPI_{lag_{t}}+\beta_{3} \cdot PMI_{lag_{t}}+\beta_{4}\cdot\delta PMI_{t}+\epsilon_{t}$、
+
+```{r}
+library(MASS)
+stepwise_model_hs300 <- stepAIC(model_hs300, direction = "both")
+summary(stepwise_model_hs300)
+```
+```{r}
+library(MASS)
+stepwise_model_zz500 <- stepAIC(model_zz500, direction = "both")
+summary(stepwise_model_zz500)
+```
+```{r}
+library(MASS)
+stepwise_model_zz1000 <- stepAIC(model_zz1000, direction = "both")
+summary(stepwise_model_zz1000)
+```
+
+# 结果分析-多元回归
+
+## 单个因子拟合分析`lm`  
+根据三只股票指数（沪深300、中证500、中证1000）的多元线性回归模型结果，我们从以下多个维度对因子分析进行了系统性解读：
+
+---
+
+### 一、模型整体表现
+
+| 指数       | Multiple R-squared | Adjusted R-squared | F-statistic p-value |
+|------------|--------------------|---------------------|----------------------|
+| 沪深300    | 0.0714             | -0.0093             | 0.4808               |
+| 中证500    | 0.0404             | -0.0430             | 0.7472               |
+| 中证1000   | 0.0353             | -0.0486             | 0.7926               |
+
+#### 分析：
+- **R² 极低**：说明当前模型对收益率变动的解释能力非常有限。
+- **调整 R² 为负值**：表明加入的变量对模型几乎没有贡献，甚至可能引入了噪音。
+- **F检验不显著（p > 0.05）**：表示模型整体上无法显著解释因变量的变化。
+
+---
+
+### 二、各因子对不同指数的影响
+
+我们列出所有变量在三个模型中的系数及显著性情况（以 `Pr(>|t|)` 衡量）：
+
+| 变量名            | 沪深300 (`x_market`) | 中证500 (`x_market`) | 中证1000 (`x_market`) |
+|-------------------|----------------------|-----------------------|------------------------|
+| `x_market`        | -0.1379 (p=0.385)    | -0.1501 (p=0.353)     | -0.1101 (p=0.496)      |
+| `CPI_lag`         | +0.0147 (p=0.924)    | +0.1068 (p=0.497)     | +0.1278 (p=0.417)      |
+| `PMI_lag`         | -0.2493 (p=0.118)    | -0.1261 (p=0.431)     | -0.1180 (p=0.462)      |
+| `delta_pmi_lag`   | +0.0308 (p=0.852)    | +0.06897 (p=0.681)    | +0.08576 (p=0.610)     |
+
+#### 分析结论：
+
+##### 通胀因子 (`x_market`)
+- 系数均为负值，显示与收益率呈负相关趋势；
+- 但均不显著（p > 0.1），说明短期内通胀变化对这三类指数影响较弱或存在其他主导因素。
+
+##### CPI滞后项 (`CPI_lag`)
+- 影响微弱且方向不确定；
+- 所有 p 值 > 0.4，统计上无意义。
+
+##### PMI滞后项 (`PMI_lag`)
+- 对沪深300有一定负面影响（p = 0.118，接近显著水平）；
+- 对中小盘指数影响更小，且不显著。
+
+##### 非制造业PMI涨幅 (`delta_pmi_lag`)
+- 对所有指数影响极小，p 值均 > 0.6，几乎无解释力。
+
+---
+
+### 三、分指数详细解读
+
+#### 1. 沪深300（HS300）
+
+- **主要影响因子**：`PMI_lag` 最接近显著水平（p = 0.118）
+- **通胀敏感度**：略高于中证500和中证1000
+- **市场风格**：大盘蓝筹股受宏观面影响更大，但当前模型仍无法有效解释其波动
+
+#### 2. 中证500（ZZ500）
+
+- **模型拟合最差**：调整 R² 为 -0.043，说明变量组合基本无效
+- **通胀影响**：比沪深300稍强但也不显著
+- **适合策略**：可能更适合基于行业/主题因子建模
+
+#### 3. 中证1000（ZZ1000）
+
+- **完全不受宏观因子影响**：所有变量被逐步回归剔除，只剩截距项
+- **波动特性**：高度依赖个股层面因素（如盈利、题材、资金炒作等）
+- **建议建模方式**：应考虑使用微观因子或机器学习方法捕捉非线性关系
+
+---
+
+### 四、综合结论
+
+| 维度 | 结论 |
+|------|------|
+| **宏观经济因子有效性** | 整体较低，尤其对中证500和中证1000 |
+| **通胀因子作用** | 略有负向影响，但不显著 |
+| **PMI因子作用** | 在沪深300中略显重要，但整体影响力有限 |
+| **指数差异** | 大盘股（沪深300）略受宏观因子影响；中小盘股（中证系列）更适合用其他方式建模 |
+| **模型改进方向** | 引入更多变量（利率、M2、换手率）、采用 Lasso/Ridge 回归、尝试机器学习建模 |
+
+---
+
+### 不足与改进
+
+1. **变量扩展**：
+   - 加入货币政策指标（如SHIBOR、国债利率）
+   - 考虑流动性指标（如融资余额、成交额）
+   - 引入情绪因子（如百度搜索指数、新闻热度）
+
+2. **建模方法优化**：
+   - 使用正则化回归（Lasso/Ridge）防止过拟合
+   - 尝试随机森林、XGBoost 等非线性模型提升预测能力
+   - 滚动窗口回归观察参数稳定性
+
+3. **局限**：
+   - 数据时间范围：由于没有收集到 2021年以前的 CPI 数据，当前样本较少（51个月），实际情况中应该延长周期以提高模型鲁棒性
+
+
+## 逐步回归
+
+---
+
+### 一、逐步回归原理简述
+
+`stepAIC()` 是基于 Akaike Information Criterion (AIC) 的变量选择方法，通过添加或删除变量来寻找使 AIC 最小的最优模型。它能帮助我们识别出在给定候选变量中最能解释因变量变化的子集。
+
+---
+
+### 二、各指数最终模型总结
+
+| 指数 | 最终模型 | R² | 调整 R² | 显著性 |
+|------|----------|----|---------|--------|
+| **沪深300** | `y ~ PMI_lag` | 0.0507 | 0.0313 | 不显著 |
+| **中证500** | `y ~ 1`（仅截距） | - | - | 不显著 |
+| **中证1000** | `y ~ 1`（仅截距） | - | - | 不显著 |
+
+---
+
+### 三、逐个指数详细分析
+
+#### 1. 沪深300（HS300）
+
+##### 最终模型：
+```r
+y_hs300 ~ PMI_lag
+```
+
+##### 回归摘要：
+```r
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)
+(Intercept) -6.221e-17  1.378e-01   0.000    1.000
+PMI_lag     -2.251e-01  1.392e-01  -1.617    0.112
+```
+
+##### 分析：
+- **R² = 0.0507**：表示模型只能解释约5%的收益率波动。
+- **调整 R² = 0.0313**：说明加入变量后模型几乎没有改进。
+- **PMI_lag 系数为负但不显著（p = 0.112）**：表明制造业PMI与沪深300收益率呈轻微负相关趋势，但统计上无法拒绝“无影响”的原假设。
+
+##### 结论：
+- 尽管 `PMI_lag` 是唯一被保留的变量，但其影响力有限。
+- 模型整体解释力较弱，可能需引入其他宏观或风格因子增强拟合能力。
+
+---
+
+#### 2. 中证500（ZZ500）
+
+##### 最终模型：
+```r
+y_zz500 ~ 1 （只有截距）
+```
+
+##### 回归摘要：
+```r
+Coefficients:
+             Estimate Std. Error t value Pr(>|t|)
+(Intercept) 1.359e-17  1.400e-01       0        1
+```
+
+##### 分析：
+- 所有变量均被剔除，最终模型只剩常数项。
+- 表明当前所选宏观经济因子对中证500几乎无解释能力。
+
+##### 结论：
+- 中证500受行业/主题因素驱动更强；
+- 建议尝试使用更微观的因子建模（如个股盈利、换手率等）或机器学习方法。
+
+---
+
+#### 3. 中证1000（ZZ1000）
+
+##### 最终模型：
+```r
+y_zz1000 ~ 1 （只有截距）
+```
+
+##### 回归摘要：
+```r
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)
+(Intercept) -9.908e-18  1.400e-01       0        1
+```
+
+##### 分析：
+- 所有变量都被逐步回归剔除，说明这些宏观因子对中证1000几乎没有影响。
+- 小盘股波动性强，更依赖于市场情绪、资金炒作、题材热点等非宏观因子。
+
+##### 结论：
+- 中证1000更适合用事件驱动模型或机器学习方法建模；
+- 应该考虑加入舆情数据、换手率、资金流向等非传统因子。
+
+---
+
+## 四、综合结论
+
+| 维度 | 分析结果 |
+|------|----------|
+| **整体建模效果** | 三个模型的 R² 都很低，说明宏观经济因子对股市短期波动的解释力有限 |
+| **通胀因子作用** | 在所有模型中都不显著，短期内通胀变化对股价影响较小 |
+| **PMI因子作用** | 在沪深300中略显重要，但在中小盘股中完全失效 |
+| **指数差异** | 大盘股（沪深300）略受宏观因子影响；中小盘股（中证系列）更适合用其他方式建模 |
+| **模型建议** | 当前模型解释力弱，应该尝试加入更多变量（如利率、M2、换手率）或使用机器学习方法建模 |
+
+---
+
+## 五、后续优化方向-同单因子拟合建模
+

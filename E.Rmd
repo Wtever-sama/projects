@@ -1,0 +1,208 @@
+```{r}
+setwd("/Users/wtsama/Documents/code/code2/R/课程设计/data_10y")
+library(openxlsx)
+hs300 <- read.xlsx("沪深 300_000300_日线数据.xlsx")
+zz500 <- read.xlsx("中证 500_000905_日线数据.xlsx")
+zz1000 <- read.xlsx("中证 1000_000852_日线数据.xlsx")
+
+hs300$date <- as.Date(hs300$交易时间, origin=as.Date("1899-12-30"))
+
+stock_returns <- data.frame(
+    hs300_close = hs300$收盘价,
+    zz500_close = zz500$收盘价,
+    zz1000_close = zz1000$收盘价,
+    date = hs300$date
+)
+head(stock_returns)
+stock_returns <- na.omit(stock_returns) # 去除最后一行的缺失值
+tail(stock_returns)
+length(stock_returns$hs300_close) # 2431
+```
+```{r}
+library(rugarch)
+library(FinTS)
+library(tidyverse)
+library(xts)
+```
+
+```{r}
+hs300_log_return <- diff(log(hs300$收盘价), lag = 1) # 计算对数收益率,补齐数据
+zz500_log_return <- diff(log(zz500$最低价), lag = 1)
+zz1000_log_return <- diff(log(zz1000$收盘价), lag = 1)
+
+stock_returns$hs300_ret <- hs300_log_return
+stock_returns$zz500_ret <- zz500_log_return
+stock_returns$zz1000_ret <- zz1000_log_return
+
+library(tidyr)
+# 替换多列 NA
+stock_returns <- stock_returns %>%
+  mutate(across(c(hs300_ret, zz500_ret, zz1000_ret), ~ replace_na(., 0)))
+
+head(stock_returns$hs300_ret)
+```
+转换为时间序列
+```{r}
+hs300_xts <- xts(stock_returns$hs300_ret,
+                 order.by = stock_returns$date)
+
+zz500_xts <- xts(stock_returns$zz500_ret,
+                 order.by = stock_returns$date)
+
+zz1000_xts <- xts(stock_returns$zz1000_ret,
+                  order.by = stock_returns$date)
+```
+```{r}
+# 假设你已有如下 xts 数据：
+# hs300_xts, zz500_xts, zz1000_xts
+
+# 1. 转换为月度收益率
+monthly_returns <- merge(
+  hs300 = apply.monthly(hs300_xts, FUN = sum),   # 每月求和（或使用 prod 计算复利）
+  zz500 = apply.monthly(zz500_xts, FUN = sum),
+  zz1000 = apply.monthly(zz1000_xts, FUN = sum)
+)
+date_seq <- seq(
+  from = as.Date("2015-05-01"),
+  to = as.Date("2025-04-01"),
+  by = "month"
+)
+# 如果你想使用复利方式计算月度收益率（更准确）：
+monthly_returns_compound <- merge(
+  hs300 = apply.monthly(hs300_xts, function(x) prod(1 + x) - 1),
+  zz500 = apply.monthly(zz500_xts, function(x) prod(1 + x) - 1),
+  zz1000 = apply.monthly(zz1000_xts, function(x) prod(1 + x) - 1)
+)
+length(date_seq)
+nrow(monthly_returns)
+df_m <- data.frame(
+  date = date_seq,
+  hs300 = monthly_returns$hs300,
+  zz500 = monthly_returns$zz500,
+  zz1000 = monthly_returns$zz1000
+)
+head(df_m)
+# 2. 保存为 CSV 文件
+write.csv(df_m, "monthly_stock_returns.csv", row.names = TRUE)
+```
+
+ARCH效应检验
+对每个指数进行ARCH-LM检验，确认是否存在波动聚集效应：
+如果p值<0.05，说明存在ARCH效应，适合GARCH建模。
+```{r}
+# 沪深300
+ArchTest(stock_returns$hs300_ret, lags = 5)
+
+# 中证500
+ArchTest(stock_returns$zz500_ret, lags = 5)
+
+# 中证1000
+ArchTest(stock_returns$zz1000_ret, lags = 5)
+```
+✅ 结论
+由于 p 值非常小，我们 拒绝原假设，说明：
+
+✅ 中证 500 的收益率序列存在显著的 ARCH 效应，即其波动率具有条件异方差性（volatility clustering），表现为波动幅度在某些时间段内集中出现。
+---
+
+既然发现了 ARCH 效应，可以进一步拟合 GARCH 类模型 来建模和预测波动率
+
+3. **GARCH模型拟合**
+
+基本`GARCH(1,1)`模型：
+```{r}
+# 设定模型规范
+garch_spec <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "std"  # 使用学生t分布考虑厚尾
+)
+
+# 拟合沪深300
+# 注意使用时间序列化后的数据绘图避免出现时间错误
+hs300_garch <- ugarchfit(spec = garch_spec, data = hs300_xts)
+
+# 中证 500
+zz500_garch <- ugarchfit(spec = garch_spec, data = zz500_xts)
+# 中证 1000
+zz1000_garch <- ugarchfit(spec = garch_spec, data = zz1000_xts)
+```
+沪深 300
+```{r}
+# 查看结果
+hs300_garch
+```
+中证 500
+```{r}
+zz500_garch
+```
+中证 1000
+```{r}
+zz1000_garch
+```
+结果解读重点：
+
+- 查看参数估计（omega, alpha1, beta1）是否显著
+- 检查标准化残差是否通过Ljung-Box检验
+- 查看信息准则（AIC, BIC）
+
+4. **模型诊断**
+
+沪深 300
+```{r}
+pdf('hs300 残差可视化.pdf')
+# 残差诊断图
+plot(hs300_garch, which = "all")
+dev.off()
+pdf('hs300 条件方差可视化.pdf')
+# 条件方差可视化
+fitted_volatility <- sigma(hs300_garch)
+plot(fitted_volatility, main = "hs300 Conditional Volatility")
+dev.off()
+```
+中证 500
+```{r}
+pdf('zz500 残差可视化.pdf')
+# 残差诊断图
+plot(zz500_garch, which = "all")
+dev.off()
+
+pdf('zz500 条件方差可视化.pdf')
+# 条件方差可视化
+fitted_volatility <- sigma(zz500_garch)
+plot(fitted_volatility, main = "zz500 Conditional Volatility")
+dev.off()
+```
+中证1000
+```{r}
+pdf('zz1000 残差可视化.pdf')
+# 残差诊断图
+plot(zz1000_garch, which = "all")
+dev.off()
+
+pdf('zz1000 条件方差可视化.pdf')
+# 条件方差可视化
+fitted_volatility <- sigma(zz1000_garch)
+plot(fitted_volatility, main = "zz1000 Conditional Volatility")
+# 保存图片
+dev.off()
+```
+
+5. **结果保存**
+```{r}
+# 保存模型结果
+save(hs300_garch, zz500_garch, zz1000_garch, file = "garch_models.RData")
+
+# 输出参数表格
+garch_results <- rbind(
+  data.frame(Index = "HS300", t(coef(hs300_garch))),
+  data.frame(Index = "ZZ500", t(coef(zz500_garch))),
+  data.frame(Index = "ZZ1000", t(coef(zz1000_garch)))
+)
+write.csv(garch_results, "garch_parameters.csv", row.names = FALSE)
+```
+
+6. **结果改进**
+- 对于沪深 300 指数，我们可以考虑添加外部冲击变量，如经济指标、行业信息等，以增强模型的预测能力。
+- 对于中证 500 改用GJR-GARCH捕捉不对称效应
+- 对于中证 1000 增加AR项改进均值方程
