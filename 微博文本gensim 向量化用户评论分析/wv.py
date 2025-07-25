@@ -115,7 +115,7 @@ class TextAnalyzer:
             min_count=5,
             workers=8,          # 使用多线程
             sg=1,               # 使用skip-gram模型(1), 0表示CBOW
-            epochs=50,          # 可选：设置训练轮数10    
+            epochs=10,          # 可选：设置训练轮数10    
             #compute_loss=True,  # 可选：显示训练损失
             hs=0,               # 使用负采样
             negative=5,          # 负采样数量
